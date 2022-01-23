@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">CameraX</string>
+    <string name="take_photo">Take Photo</string>
+    <string name="permission_rationale">This app needs Camera Permission to work properly</string>
+    <string name="denied_permission_text">Permission denied !!</string>
+    <string name="permissoin_grant_button">Grant</string>
+</resources>
