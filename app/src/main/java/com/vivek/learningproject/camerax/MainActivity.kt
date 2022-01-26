@@ -1,39 +1,42 @@
 package com.vivek.learningproject.camerax
 
-import androidx.appcompat.app.AppCompatActivity
-import android.os.Bundle
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Resources
 import android.graphics.*
-import android.hardware.display.DisplayManager
-import android.media.Image
+import android.media.Image.Plane
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.util.DisplayMetrics
 import android.util.Log
 import android.util.Rational
 import android.util.Size
-import android.view.*
+import android.view.SurfaceHolder
+import android.view.SurfaceView
+import android.view.WindowManager
+import android.view.WindowMetrics
 import android.widget.Toast
 import androidx.annotation.RequiresApi
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
-import java.util.concurrent.Executors
+import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.constraintlayout.widget.ConstraintLayout
-import androidx.core.graphics.toRect
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import com.google.android.material.snackbar.Snackbar
 import kotlinx.android.synthetic.main.activity_main.*
+import java.io.ByteArrayOutputStream
 import java.io.File
-import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+
 typealias LumaListener = (luma: Double) -> Unit
 
 class MainActivity : AppCompatActivity(), SurfaceHolder.Callback2{
@@ -96,6 +99,7 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback2{
 
         // Set up image capture listener, which is triggered after photo has
         // been taken
+
         imageCapture.takePicture(
             outputOptions, ContextCompat.getMainExecutor(this), object : ImageCapture.OnImageSavedCallback {
                 override fun onError(exc: ImageCaptureException) {
@@ -109,6 +113,47 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback2{
                     Log.d(TAG, msg)
                 }
             })
+
+        //in memory buffer of the captured image
+        imageCapture.takePicture(ContextCompat.getMainExecutor(this),object :
+            ImageCapture.OnImageCapturedCallback() {
+            @SuppressLint("UnsafeOptInUsageError")
+            override fun onCaptureSuccess(image: ImageProxy) {
+                super.onCaptureSuccess(image)
+                if(image.image?.format == ImageFormat.JPEG)
+                {
+                    val planes: Array<Plane> = image.image!!.planes
+                    val buffer = planes[0].buffer
+                    val bitmap = Bitmap.createBitmap(image.image!!.width,
+                        image.image!!.height,Bitmap.Config.ARGB_8888)
+                    buffer.rewind()
+                    bitmap.copyPixelsFromBuffer(buffer)
+
+                    val filename= "myImage"
+                    try
+                    {
+                        val bytes = ByteArrayOutputStream()
+                       // bitmap.compress(Bitmap.CompressFormat.JPEG,100,bytes)
+                        val fo = openFileOutput(filename,Context.MODE_PRIVATE)
+                        fo.write(bytes.toByteArray())
+                        fo.close()
+                    }catch (e : Exception)
+                    {
+                        Log.d(TAG,"error saving to disk")
+
+                    }
+
+                }
+                //val bitmap = Bitmap.createBitmap(image.width,image.height,Bitmap.Config.ARGB_8888)
+
+
+            }
+
+            override fun onError(exception: ImageCaptureException) {
+                super.onError(exception)
+            }
+        })
+
     }
 
 
@@ -133,12 +178,14 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback2{
         cameraProviderFuture.addListener(Runnable {
         val bindLife = cameraProviderFuture.get()
 
+
             //preview object
             val preview = Preview.Builder()
                 .build()
                 .also {
                     it.setSurfaceProvider(previewView.surfaceProvider)
                 }
+
 
 
             imageCapture = ImageCapture.Builder()
@@ -158,13 +205,16 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback2{
 
             val widthOfCroppedImage =rectF.width().toInt()
             val heightOfCroppedImage = rectF.height().toInt()
-            Log.i(TAG,"RectF : ${rectF.height()} ${rectF.width()}")
+            Log.d(TAG,"RectF : ${rectF.height()} ${rectF.width()}")
+
             val rational = Rational(widthOfCroppedImage,heightOfCroppedImage)
-            Log.i(TAG,"Rational : $rational")
-            Log.i(TAG,"Rotation : ${display?.rotation}")
+            Log.d(TAG,"Rational : $rational")
+            Log.d(TAG,"Rotation : ${display?.rotation}")
+
 
             val viewPort =
                display?.let { ViewPort.Builder(rational, it.rotation).build() }
+
 
 
             val useCaseGroup = viewPort?.let {
@@ -286,8 +336,8 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback2{
         val top = height/4f
         val right = width*3f/4f
         val bottom = height/2f
-        Log.i(TAG,"in OnDraw, Surface View height x widht = $height x $width")
-        Log.i(TAG,"RectF, in OnDraw  Height X width =(Bottom-Top)x(Right-Left) : $bottom - $top x  $right - $left")
+        Log.d(TAG,"in OnDraw, Surface View height x widht = $height x $width")
+        Log.d(TAG,"RectF, in OnDraw  Height X width =(Bottom-Top)x(Right-Left) : $bottom - $top x  $right - $left")
          rectF = RectF(left, top, right, bottom)
         val paint = Paint().apply {
             Paint.ANTI_ALIAS_FLAG
