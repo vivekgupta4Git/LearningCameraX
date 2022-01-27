@@ -2,24 +2,16 @@ package com.vivek.learningproject.camerax
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageManager
-import android.content.res.Resources
 import android.graphics.*
-import android.media.Image.Plane
-import android.net.Uri
+import android.media.Image
 import android.os.Build
 import android.os.Bundle
 import android.util.DisplayMetrics
 import android.util.Log
 import android.util.Rational
-import android.util.Size
 import android.view.SurfaceHolder
 import android.view.SurfaceView
-import android.view.WindowManager
-import android.view.WindowMetrics
-import android.widget.Toast
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.*
@@ -29,17 +21,32 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.google.android.material.snackbar.Snackbar
 import kotlinx.android.synthetic.main.activity_main.*
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.nio.ByteBuffer
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import kotlin.math.abs
+import kotlin.math.ln
+import kotlin.math.max
+import kotlin.math.min
+import android.graphics.BitmapFactory
+
+import android.graphics.Bitmap
+import android.net.Uri
+import android.widget.Toast
+import java.io.ByteArrayOutputStream
+import java.io.FileOutputStream
+import java.io.IOException
+
 
 typealias LumaListener = (luma: Double) -> Unit
 
 class MainActivity : AppCompatActivity(), SurfaceHolder.Callback2{
+
+    private val HEIGHT_PERCENTAGE = 90
+    private val WIDTH_PERCENTAGE = 75
 
     private var imageCapture: ImageCapture? = null
     private lateinit var mHolder : SurfaceHolder
@@ -66,7 +73,6 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback2{
         surfaceView  = findViewById(R.id.overlay)
         surfaceView.setZOrderOnTop(true)
         mHolder = surfaceView.holder
-
         mHolder.setFormat(PixelFormat.TRANSPARENT)
         mHolder.addCallback(this)
 
@@ -100,6 +106,8 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback2{
         // Set up image capture listener, which is triggered after photo has
         // been taken
 
+
+/*
         imageCapture.takePicture(
             outputOptions, ContextCompat.getMainExecutor(this), object : ImageCapture.OnImageSavedCallback {
                 override fun onError(exc: ImageCaptureException) {
@@ -114,46 +122,124 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback2{
                 }
             })
 
+
+*/
+
         //in memory buffer of the captured image
         imageCapture.takePicture(ContextCompat.getMainExecutor(this),object :
             ImageCapture.OnImageCapturedCallback() {
             @SuppressLint("UnsafeOptInUsageError")
             override fun onCaptureSuccess(image: ImageProxy) {
                 super.onCaptureSuccess(image)
-                if(image.image?.format == ImageFormat.JPEG)
+                if(image.image?.format == ImageFormat.YUV_420_888)
                 {
-                    val planes: Array<Plane> = image.image!!.planes
-                    val buffer = planes[0].buffer
-                    val bitmap = Bitmap.createBitmap(image.image!!.width,
-                        image.image!!.height,Bitmap.Config.ARGB_8888)
-                    buffer.rewind()
-                    bitmap.copyPixelsFromBuffer(buffer)
-
-                    val filename= "myImage"
-                    try
-                    {
-                        val bytes = ByteArrayOutputStream()
-                       // bitmap.compress(Bitmap.CompressFormat.JPEG,100,bytes)
-                        val fo = openFileOutput(filename,Context.MODE_PRIVATE)
-                        fo.write(bytes.toByteArray())
-                        fo.close()
-                    }catch (e : Exception)
-                    {
-                        Log.d(TAG,"error saving to disk")
-
-                    }
-
+                  cropImageAndSaveImage(image.image!!)
                 }
-                //val bitmap = Bitmap.createBitmap(image.width,image.height,Bitmap.Config.ARGB_8888)
-
+                image.close()
 
             }
 
             override fun onError(exception: ImageCaptureException) {
                 super.onError(exception)
             }
+
+
         })
 
+
+    }
+
+
+
+    fun Image.saveImage() {
+        val yBuffer = planes[0].buffer // Y
+        val vuBuffer = planes[2].buffer // VU
+
+        val ySize = yBuffer.remaining()
+        val vuSize = vuBuffer.remaining()
+
+        val nv21 = ByteArray(ySize + vuSize)
+
+        yBuffer.get(nv21, 0, ySize)
+        vuBuffer.get(nv21, ySize, vuSize)
+
+        val yuvImage = YuvImage(nv21, ImageFormat.NV21, this.width, this.height, null)
+        val out = ByteArrayOutputStream()
+        yuvImage.compressToJpeg(Rect(0, 0, yuvImage.width, yuvImage.height), 50, out)
+        val imageBytes = out.toByteArray()
+
+        val bitmapImage = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+
+        val photoFile = File(
+            outputDirectory,
+            SimpleDateFormat(FILENAME_FORMAT, Locale.getDefault()
+            ).format(System.currentTimeMillis()) + ".jpg")
+
+        if (bitmapImage != null)
+        {
+            try {
+                val out1 = FileOutputStream(photoFile)
+                bitmapImage.compress(Bitmap.CompressFormat.JPEG, 100, out1)
+            } catch (e: IOException) {
+                Log.e(TAG, "Error : ${e.message}")
+            }
+        }
+        else
+        {
+            Log.i(TAG,"Bitmap Image is null")
+        }
+
+
+    }
+
+    private fun cropImageAndSaveImage(image: Image) {
+
+
+        val yBuffer = image.planes[0].buffer // Y
+        val vuBuffer = image.planes[2].buffer // VU
+
+        val ySize = yBuffer.remaining()
+        val vuSize = vuBuffer.remaining()
+
+        val nv21 = ByteArray(ySize + vuSize)
+
+        yBuffer.get(nv21, 0, ySize)
+        vuBuffer.get(nv21, ySize, vuSize)
+
+
+        val croppedArray = ByteArray(rectF.width().toInt() * rectF.height().toInt())
+        //what else could be imageWidth ?
+        val imageWidth = rectF.width()
+        var i = 0
+
+        nv21.forEachIndexed { index, byte ->
+            val x = index % imageWidth
+            val y = index / imageWidth
+            if (rectF.left.toInt() <= x && x < rectF.right.toInt() && rectF.top.toInt() <= y && y < rectF.bottom.toInt()) {
+                croppedArray[i] = byte
+                i++
+            }
+
+        }
+        val bitmapImage = BitmapFactory.decodeByteArray(croppedArray, 0, croppedArray.size)
+        val photoFile = File(
+            outputDirectory,
+            SimpleDateFormat(FILENAME_FORMAT, Locale.getDefault()
+            ).format(System.currentTimeMillis()) + ".jpg")
+
+        if (bitmapImage != null)
+        {
+            try {
+                val out = FileOutputStream(photoFile)
+                bitmapImage.compress(Bitmap.CompressFormat.JPEG, 100, out)
+            } catch (e: IOException) {
+                Log.e(TAG, "Error : ${e.message}")
+            }
+    }
+        else
+        {
+            Log.i(TAG,"Bitmap Image is null")
+        }
     }
 
 
@@ -167,20 +253,21 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback2{
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
 
 
-        cameraProviderFuture.addListener(Runnable {
 
+      cameraProviderFuture.addListener(Runnable {
 
-
-
-
-        },ContextCompat.getMainExecutor(this))
-
-        cameraProviderFuture.addListener(Runnable {
         val bindLife = cameraProviderFuture.get()
 
+          val metrics = DisplayMetrics().also {
+              previewView.display.getRealMetrics(it)
+          }
+          val screenAspectRatio = aspectRatio(metrics.widthPixels,metrics.heightPixels)
 
+          val rotation = previewView.display.rotation
             //preview object
             val preview = Preview.Builder()
+                .setTargetRotation(rotation)
+                .setTargetAspectRatio(screenAspectRatio)
                 .build()
                 .also {
                     it.setSurfaceProvider(previewView.surfaceProvider)
@@ -243,6 +330,16 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback2{
         },ContextCompat.getMainExecutor(this))
 
 
+    }
+
+
+    private fun aspectRatio(width: Int, height : Int) :Int{
+        val previewRatio = ln(max(width,height).toDouble()/ min(width.toDouble(),height.toDouble()))
+        if(abs(previewRatio-ln(4.0/3.0)) <= abs(previewRatio-ln(16.0/9.0)))
+        {
+            return 4/3
+        }
+        return 16/9
     }
 
     private fun allPermissionsGranted() = REQUIRED_PERMISSIONS.all {
@@ -321,32 +418,29 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback2{
 
     private fun drawOverlayRectangle(){
 
-      /*  val displayMetrics = DisplayMetrics()
-       val defaultDisplay= getSystemService(DisplayManager::class.java).getDisplay(Display.DEFAULT_DISPLAY)
-        defaultDisplay?.getMetrics(displayMetrics)
-*/
         val height = previewView.height
         val width = previewView.width
-
-
         val canvas = mHolder.lockCanvas()
 
+        canvas.drawPaint(Paint().apply { alpha=140 })
 
-        val left = width/4f
-        val top = height/4f
-        val right = width*3f/4f
-        val bottom = height/2f
-        Log.d(TAG,"in OnDraw, Surface View height x widht = $height x $width")
-        Log.d(TAG,"RectF, in OnDraw  Height X width =(Bottom-Top)x(Right-Left) : $bottom - $top x  $right - $left")
-         rectF = RectF(left, top, right, bottom)
+        val cornerRadius = 25f
+        val offset = 100f
+
+        val left = width/3f
+        val  top = height/3f
+        val right = width*3f/4f -offset
+        val  bottom = height/2f - offset
+
+        rectF = RectF(left, top, right, bottom)
+
         val paint = Paint().apply {
-            Paint.ANTI_ALIAS_FLAG
-            style=Paint.Style.STROKE
-            color = Color.RED
-            strokeWidth=5f
+            xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
+            style=Paint.Style.FILL
+            color = Color.WHITE
         }
 
-        canvas.drawRect(rectF,paint)
+        canvas.drawRoundRect(rectF,cornerRadius,cornerRadius,paint)
         mHolder.unlockCanvasAndPost(canvas)
     }
 
@@ -372,38 +466,4 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback2{
         }
     }
 
-}
-
-object ScreenSizeCompat {
-    private val api: Api =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) ApiLevel30()
-        else Api()
-
-    /**
-     * Returns screen size in pixels.
-     */
-    @RequiresApi(Build.VERSION_CODES.M)
-    fun getScreenSize(context: Context): Size = api.getScreenSize(context)
-
-    @Suppress("DEPRECATION")
-    private open class Api {
-        @RequiresApi(Build.VERSION_CODES.M)
-        open fun getScreenSize(context: Context): Size {
-            val display = context.getSystemService(WindowManager::class.java).defaultDisplay
-            val metrics = if (display != null) {
-                DisplayMetrics().also { display.getRealMetrics(it) }
-            } else {
-                Resources.getSystem().displayMetrics
-            }
-            return Size(metrics.widthPixels, metrics.heightPixels)
-        }
-    }
-
-    @RequiresApi(Build.VERSION_CODES.R)
-    private class ApiLevel30 : Api() {
-        override fun getScreenSize(context: Context): Size {
-            val metrics: WindowMetrics = context.getSystemService(WindowManager::class.java).currentWindowMetrics
-            return Size(metrics.bounds.width(), metrics.bounds.height())
-        }
-    }
 }
